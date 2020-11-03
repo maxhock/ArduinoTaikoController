@@ -1,6 +1,10 @@
 #include "AnalogReadNow.h"
+//#include "Kalman.h"
 
-//#define DEBUG_OUTPUT
+//Kalman xFilter(0.125,32,1023,0);
+//Kalman yFilter(0.125,32,1023,0);
+
+#define DEBUG_OUTPUT
 //#define DEBUG_OUTPUT_LIVE
 //#define DEBUG_TIME
 //#define DEBUG_DATA
@@ -9,6 +13,14 @@
 #define ENABLE_NS_JOYSTICK
 
 #define HAS_BUTTONS
+
+// Definitions for Sensors
+#define Top_Left 0
+#define Top_Right 3
+#define Bottom_Left 2
+#define Bottom_Right 1
+#define Bottom 4
+#define Top 5
 
 #ifdef ENABLE_KEYBOARD
 #include <Keyboard.h>
@@ -64,9 +76,14 @@ const long cd_length = 10000;
 const float k_threshold = 1.5;
 const float k_decay = 0.95;
 
+// defining outer and inner radius to eventually replace other method
+const long inner_radius = 250;
+const long outer_radius = 400;
+const int loop_threshold = 50;
+
 const int pin[4] = {A0, A3, A2, A1};
 const int key[4] = {'d', 'f', 'j', 'k'};
-const float sens[4] = {0.8,1.0,1.0,0.8};
+const float sens[4] = {0.8, 1.0, 1.0, 0.8};
 
 const int key_next[4] = {3, 2, 0, 1};
 
@@ -104,7 +121,7 @@ void sampleSingle(int i)
   int prev = raw[i];
   raw[i] = analogReadNow();
   //Squared result to get sharper peaks
-  level[i] = (abs(raw[i] - prev) * sens[i]) * (abs(raw[i] - prev) * sens[i]);
+  level[i] = (abs(raw[i] - prev) * sens[i]);
   analogSwitchPin(pin[key_next[i]]);
 }
 
@@ -161,252 +178,170 @@ void parseSerial()
   }
 }
 
-void loop_test()
-{
-  sampleSingle(0);
-  Serial.print(level[0]);
-  Serial.print("\t");
-  delayMicroseconds(500);
-  sampleSingle(1);
-  Serial.print(level[1]);
-  Serial.print("\t");
-  delayMicroseconds(500);
-  sampleSingle(2);
-  Serial.print(level[2]);
-  Serial.print("\t");
-  delayMicroseconds(500);
-  sampleSingle(3);
-  Serial.print(level[3]);
-  Serial.println();
-  delayMicroseconds(500);
-}
-
-void loop_test2()
-{
-  Serial.print(analogRead(pin[0]));
-  Serial.print("\t");
-  delayMicroseconds(500);
-  Serial.print(analogRead(pin[1]));
-  Serial.print("\t");
-  delayMicroseconds(500);
-  Serial.print(analogRead(pin[2]));
-  Serial.print("\t");
-  delayMicroseconds(500);
-  Serial.print(analogRead(pin[3]));
-  Serial.println();
-  delayMicroseconds(500);
-}
-
 void loop()
 {
   //loop_test2(); return;
-
-  static int si = 0;
-
-#ifdef ENABLE_KEYBOARD
-  parseSerial();
-#endif
 
   time_t t1 = micros();
   dt = t1 - t0;
   sdt += dt;
   t0 = t1;
 
-  float prev_level = level[si];
-  sampleSingle(si);
-  float new_level = level[si];
-  level[si] = (level[si] + prev_level * 2) / 3;
+  static float vector_x;
+  static float vector_y;
+  static float vector_amp;
 
-  threshold *= k_decay;
+  bool sens_state[4] = {0, 0, 0, 0};
+  static int sens_count[6] = {0, 0, 0, 0, 0, 0};
+  int max_count = 0;
+  int max_index = -1;
+  static int loop_count = 0;
 
-  for (int i = 0; i != 4; ++i)
+  // add every sensor to xy-coordinates exp. Top_Right is [1,1] Bottom_Right is [1,-1]
+  // for (int i = 0; i < 4; i++)
+  // {
+  //   sampleSingle(i);
+  // }
+  sample();
+
+  vector_x = level[Top_Right] + level[Bottom_Right] - level[Top_Left] - level[Bottom_Left];
+  vector_y = level[Top_Right] + level[Top_Left] - level[Bottom_Right] - level[Bottom_Left];
+  vector_amp = sqrt(sq(vector_x) + sq(vector_y));
+
+  if (vector_amp >= inner_radius && vector_amp <= outer_radius)
   {
-    if (cd[i] > 0)
+    loop_count++;
+
+    if (vector_y <= 0)
     {
-      cd[i] -= dt;
-      if (cd[i] <= 0)
+      if (vector_x <= 0)
       {
-        cd[i] = 0;
-        if (down[i])
-        {
-#ifdef ENABLE_KEYBOARD
-          Keyboard.release(stageresult ? KEY_ESC : key[i]);
-#endif
-          down[i] = false;
-        }
-      }
-    }
-  }
-
-  int i_max = 0;
-  long level_max = 0;
-
-  for (int i = 0; i != 4; ++i)
-  {
-    if (level[i] > level_max && level[i] > threshold)
-    {
-      level_max = level[i];
-      i_max = i;
-    }
-  }
-
-  if (i_max == si && level_max >= min_threshold)
-  {
-    if (cd[i_max] == 0)
-    {
-      if (!down[i_max])
-      {
-#ifdef DEBUG_DATA
-        Serial.print(level[0], 1);
-        Serial.print("\t");
-        Serial.print(level[1], 1);
-        Serial.print("\t");
-        Serial.print(level[2], 1);
-        Serial.print("\t");
-        Serial.print(level[3], 1);
-        Serial.print("\n");
-#endif
-#ifdef ENABLE_KEYBOARD
-        if (stageresult)
-        {
-          Keyboard.press(KEY_ESC);
-        }
-        else
-        {
-          Keyboard.press(key[i_max]);
-        }
-#endif
-        down[i_max] = true;
-#ifdef ENABLE_NS_JOYSTICK
-        if (down_count[i_max] <= 2)
-          down_count[i_max] += 2;
-#endif
-      }
-      for (int i = 0; i != 4; ++i)
-        cd[i] = cd_length;
-#ifdef ENABLE_KEYBOARD
-      if (stageselect)
-        cd[i_max] = cd_stageselect;
-#endif
-    }
-    sdt = 0;
-  }
-
-  if (cd[i_max] > 0)
-  {
-    threshold = max(threshold, level_max * k_threshold);
-  }
-
-#ifdef HAS_BUTTONS
-  // 4x4 button scan, one row per cycle
-  static int bi = 3;
-  pinMode(bi + 4, INPUT_PULLUP);
-  bi = ((bi + 1) & 3);
-  pinMode(bi + 4, OUTPUT);
-  digitalWrite(bi + 4, LOW);
-#endif
-  static time_t ct = 0;
-  static int cc = 0;
-  ct += dt;
-  cc += 1;
-
-#ifdef HAS_BUTTONS
-  int state;
-  int *bs = button_state + (bi << 2);
-  int *bc = button_cd + (bi << 2);
-  for (int i = 0; i < 4; ++i)
-  {
-    state = (digitalRead(i) == LOW);
-    //digitalWrite(led_pin[i], state ? LOW : HIGH);
-    if (bc[i] != 0)
-    {
-      bc[i] -= ct;
-      if (bc[i] < 0)
-        bc[i] = 0;
-    }
-    if (state != bs[i] && bc[i] == 0)
-    {
-      bs[i] = state;
-      bc[i] = 15000;
-
-#ifdef ENABLE_KEYBOARD
-      if (state)
-      {
-        Keyboard.press(button_key[(bi << 2) + i]);
+        sens_count[Bottom_Left]++;
       }
       else
       {
-        Keyboard.release(button_key[(bi << 2) + i]);
+        sens_count[Bottom_Right]++;
       }
-#endif
     }
-#ifdef ENABLE_NS_JOYSTICK
-    Joystick.Button |= (bs[i] ? button[(bi << 2) + i] : SWITCH_BTN_NONE);
-#endif
+    else
+    {
+      if (vector_x <= 0)
+      {
+        sens_count[Top_Left]++;
+      }
+      else
+      {
+        sens_count[Top_Right]++;
+      }
+    }
   }
-#endif
-
-#ifdef ENABLE_NS_JOYSTICK
-  if (ct > 32000 || (ct > 8000 && (down_count[0] || down_count[1] || down_count[2] || down_count[3])))
+  else if (vector_amp >= outer_radius)
   {
-    for (int i = 0; i < 4; ++i)
-    { // Sensors
-      bool state = (down_count[i] & 1);
-      Joystick.Button |= (state ? sensor_button[i] : SWITCH_BTN_NONE);
-      down_count[i] -= !!down_count[i];
-      digitalWrite(led_pin[i], state ? LOW : HIGH);
+    loop_count++;
+
+    if (vector_y <= 0)
+    {
+      sens_count[Bottom]++;
     }
-    state = 0;
-    for (int i = 0; i < 4; ++i)
-    { // Buttons for hats
-      state |= (button_state[i] ? 1 << i : 0);
+    else
+    {
+      sens_count[Top]++;
     }
-    Joystick.HAT = hat_mapping[state];
-    Joystick.sendState();
-    Joystick.Button = SWITCH_BTN_NONE;
-#ifdef DEBUG_TIME
-    if (cc > 0)
-      Serial.println((float)ct / cc);
-#endif
-    ct = 0;
-    cc = 0;
   }
+  else if (loop_count >= loop_threshold)
+  {
+    loop_count = 0;
+    for (int i = 0; i < 6; i++)
+    {
+      if (sens_count[i] > max_count)
+      {
+        max_count = sens_count[i];
+        max_index = i;
+      }
+    }
+    if (max_index == Top)
+    {
+      sens_state[Top_Left] = true;
+      sens_state[Top_Right] = true;
+    }
+    else if (max_index == Bottom)
+    {
+      sens_state[Bottom_Left] = true;
+      sens_state[Bottom_Right] = true;
+    }
+    else if (max_index != -1)
+    {
+      sens_state[max_index] = true;
+    }
+#ifdef DEBUG_DATA
+    if (sens_state[Top_Left] || sens_state[Top_Right] || sens_state[Bottom_Left] || sens_state[Bottom_Right])
+    {
+      Serial.print("Top_Left: ");
+      Serial.print(sens_count[Top_Left]);
+      Serial.print("\t");
+      Serial.print("Top_Right: ");
+      Serial.print(sens_count[Top_Right]);
+      Serial.print("\t");
+      Serial.print("Top: ");
+      Serial.print(sens_count[Top]);
+      Serial.print("\t");
+      Serial.print("Bottom_Left: ");
+      Serial.print(sens_count[Bottom_Left]);
+      Serial.print("\t");
+      Serial.print("Bottom_Right: ");
+      Serial.print(sens_count[Bottom_Right]);
+      Serial.print("\t");
+      Serial.print("Bottom: ");
+      Serial.print(sens_count[Bottom]);
+      Serial.println();
+    }
+#endif
+    for (int i = 0; i < 6; i++)
+    {
+      sens_count[i] = 0;
+    }
+  }
+  else if (sens_count[Top] || sens_count[Top_Left] || sens_count[Top_Right] || sens_count[Bottom] || sens_count[Bottom_Left] || sens_count[Bottom_Right])
+  {
+    loop_count++;
+  }
+
+  for (int i = 0; i < 4; ++i)
+  {
+    Joystick.Button |= (sens_state[i] ? sensor_button[i] : SWITCH_BTN_NONE);
+  }
+  Joystick.sendState();
+  Joystick.Button = SWITCH_BTN_NONE;
+
+#ifdef DEBUG_OUTPUT_LIVE
+  Serial.print("x: ");
+  Serial.print(vector_x);
+  Serial.print("\t");
+  Serial.print("y: ");
+  Serial.print(vector_y);
+  Serial.print("\t");
+  Serial.print("amp: ");
+  Serial.print(vector_amp);
+  Serial.println();
 #endif
 
 #ifdef DEBUG_OUTPUT
-  static bool printing = false;
-#ifdef DEBUG_OUTPUT_LIVE
-  if (true)
-#else
-  if (printing || (/*down[0] &&*/ threshold > 10))
-#endif
+  if (sens_state[Top_Left] || sens_state[Top_Right] || sens_state[Bottom_Left] || sens_state[Bottom_Right])
   {
-    printing = true;
-    Serial.print(level[0], 1);
+    Serial.print("Top_Left: ");
+    Serial.print(sens_state[Top_Left]);
     Serial.print("\t");
-    Serial.print(level[1], 1);
+    Serial.print("Top_Right: ");
+    Serial.print(sens_state[Top_Right]);
     Serial.print("\t");
-    Serial.print(level[2], 1);
+    Serial.print("Bottom_Left: ");
+    Serial.print(sens_state[Bottom_Left]);
     Serial.print("\t");
-    Serial.print(level[3], 1);
-    Serial.print("\t| ");
-    // Serial.print(cd[0] == 0 ? "  " : down[0] ? "# " : "* ");
-    // Serial.print(cd[1] == 0 ? "  " : down[1] ? "# " : "* ");
-    // Serial.print(cd[2] == 0 ? "  " : down[2] ? "# " : "* ");
-    // Serial.print(cd[3] == 0 ? "  " : down[3] ? "# " : "* ");
-    // Serial.print("|\t");
-    Serial.print(threshold, 1);
+    Serial.print("Bottom_Right: ");
+    Serial.print(sens_state[Bottom_Right]);
     Serial.println();
-    if (threshold <= 5)
-    {
-      Serial.println();
-      printing = false;
-    }
   }
 #endif
-
-  level[si] = new_level;
-  si = key_next[si];
 
   long ddt = 300 - (micros() - t0);
   if (ddt > 3)
