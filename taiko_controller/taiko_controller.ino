@@ -67,14 +67,15 @@ const int hat_mapping[16] = {
 #endif
 #endif
 
-const long min_threshold = 62500;
+const long min_threshold = sq(250);
+const long outer_threshold = sq(500);
 const long cd_length = 10000;
 const float k_threshold = 1.5;
 const float k_decay = 0.95;
 
 const int pin[4] = {A0, A3, A2, A1};
 const int key[4] = {'d', 'f', 'j', 'k'};
-const float sens[4] = {0.8, 1.0, 1.0, 0.8};
+const float sens[4] = {0.8, 1.0, 0.95, 0.8};
 
 const int key_next[4] = {3, 2, 0, 1};
 
@@ -112,7 +113,7 @@ void sampleSingle(int i)
   int prev = raw[i];
   raw[i] = analogReadNow();
   //Squared result to get sharper peaks
-  level[i] = (abs(raw[i] - prev) * sens[i]) * (abs(raw[i] - prev) * sens[i]);
+  level[i] = sq(abs(raw[i] - prev) * sens[i]);
   analogSwitchPin(pin[key_next[i]]);
 }
 
@@ -225,9 +226,9 @@ void loop()
   float new_level = level[si];
   level[si] = (level[si] + prev_level * 2) / 3;
 
-  vector_x = level[Top_Right] + level[Bottom_Right] - level[Top_Left] - level[Bottom_Left];
-  vector_y = level[Top_Right] + level[Top_Left] - level[Bottom_Right] - level[Bottom_Left];
-  vector_amp = sqrt(sq(vector_x) + sq(vector_y));
+  long vector_x = level[Top_Right] + level[Bottom_Right] - level[Top_Left] - level[Bottom_Left];
+  long vector_y = level[Top_Right] + level[Top_Left] - level[Bottom_Right] - level[Bottom_Left];
+  long vector_amp = sqrt(sq(vector_x) + sq(vector_y));
 
   threshold *= k_decay;
 
@@ -253,14 +254,56 @@ void loop()
   int i_max = 0;
   long level_max = 0;
 
-  for (int i = 0; i != 4; ++i)
+  // for (int i = 0; i != 4; ++i)
+  // {
+  //   if (level[i] > level_max && level[i] > threshold)
+  //   {
+  //     level_max = level[i];
+  //     i_max = i;
+  //   }
+  // }
+  if (vector_amp >= threshold && vector_amp <= outer_threshold)
   {
-    if (level[i] > level_max && level[i] > threshold)
+    if (vector_y <= 0)
     {
-      level_max = level[i];
-      i_max = i;
+      if (vector_x <= 0)
+      {
+        level_max = vector_amp;
+        i_max = Bottom_Left;
+      }
+      else
+      {
+        level_max = vector_amp;
+        i_max = Bottom_Right;
+      }
+    }
+    else
+    {
+      if (vector_x <= 0)
+      {
+        level_max = vector_amp;
+        i_max = Top_Left;
+      }
+      else
+      {
+        level_max = vector_amp;
+        i_max = Top_Right;
+      }
     }
   }
+  // else if (vector_amp >= outer_radius)
+  // {
+  //   if (vector_y <= 0)
+  //   {
+  //     level_max = vector_amp;
+  //     i_max = Bottom_Right;
+  //   }
+  //   else
+  //   {
+  //     level_max = vector_amp;
+  //     i_max = Top_Right;
+  //   }
+  // }
 
   if (i_max == si && level_max >= min_threshold)
   {
