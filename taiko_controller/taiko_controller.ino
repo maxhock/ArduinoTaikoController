@@ -10,6 +10,14 @@
 
 #define HAS_BUTTONS
 
+// Definitions for Sensors
+#define Top_Left 0
+#define Bottom_Right 1
+#define Bottom_Left 2
+#define Top_Right 3
+#define Bottom 4
+#define Top 5
+
 #ifdef ENABLE_KEYBOARD
 #include <Keyboard.h>
 #endif
@@ -66,7 +74,7 @@ const float k_decay = 0.95;
 
 const int pin[4] = {A0, A3, A2, A1};
 const int key[4] = {'d', 'f', 'j', 'k'};
-const float sens[4] = {0.8,1.0,1.0,0.8};
+const float sens[4] = {0.8, 1.0, 1.0, 0.8};
 
 const int key_next[4] = {3, 2, 0, 1};
 
@@ -78,7 +86,7 @@ bool stageresult = false;
 float threshold = 20;
 int raw[4] = {0, 0, 0, 0};
 float level[4] = {0, 0, 0, 0};
-long cd[4] = {0, 0, 0, 0};
+long cooldown[4] = {0, 0, 0, 0};
 bool down[4] = {false, false, false, false};
 #ifdef ENABLE_NS_JOYSTICK
 uint8_t down_count[4] = {0, 0, 0, 0};
@@ -86,7 +94,7 @@ uint8_t down_count[4] = {0, 0, 0, 0};
 
 typedef unsigned long time_t;
 time_t t0 = 0;
-time_t dt = 0, sdt = 0;
+time_t delta_time = 0, sdt = 0;
 
 void sample()
 {
@@ -208,8 +216,8 @@ void loop()
 #endif
 
   time_t t1 = micros();
-  dt = t1 - t0;
-  sdt += dt;
+  delta_time = t1 - t0;
+  sdt += delta_time;
   t0 = t1;
 
   float prev_level = level[si];
@@ -217,16 +225,20 @@ void loop()
   float new_level = level[si];
   level[si] = (level[si] + prev_level * 2) / 3;
 
+  vector_x = level[Top_Right] + level[Bottom_Right] - level[Top_Left] - level[Bottom_Left];
+  vector_y = level[Top_Right] + level[Top_Left] - level[Bottom_Right] - level[Bottom_Left];
+  vector_amp = sqrt(sq(vector_x) + sq(vector_y));
+
   threshold *= k_decay;
 
   for (int i = 0; i != 4; ++i)
   {
-    if (cd[i] > 0)
+    if (cooldown[i] > 0)
     {
-      cd[i] -= dt;
-      if (cd[i] <= 0)
+      cooldown[i] -= delta_time;
+      if (cooldown[i] <= 0)
       {
-        cd[i] = 0;
+        cooldown[i] = 0;
         if (down[i])
         {
 #ifdef ENABLE_KEYBOARD
@@ -252,7 +264,7 @@ void loop()
 
   if (i_max == si && level_max >= min_threshold)
   {
-    if (cd[i_max] == 0)
+    if (cooldown[i_max] == 0)
     {
       if (!down[i_max])
       {
@@ -283,16 +295,16 @@ void loop()
 #endif
       }
       for (int i = 0; i != 4; ++i)
-        cd[i] = cd_length;
+        cooldown[i] = cd_length;
 #ifdef ENABLE_KEYBOARD
       if (stageselect)
-        cd[i_max] = cd_stageselect;
+        cooldown[i_max] = cd_stageselect;
 #endif
     }
     sdt = 0;
   }
 
-  if (cd[i_max] > 0)
+  if (cooldown[i_max] > 0)
   {
     threshold = max(threshold, level_max * k_threshold);
   }
@@ -307,7 +319,7 @@ void loop()
 #endif
   static time_t ct = 0;
   static int cc = 0;
-  ct += dt;
+  ct += delta_time;
   cc += 1;
 
 #ifdef HAS_BUTTONS
@@ -390,10 +402,10 @@ void loop()
     Serial.print("\t");
     Serial.print(level[3], 1);
     Serial.print("\t| ");
-    // Serial.print(cd[0] == 0 ? "  " : down[0] ? "# " : "* ");
-    // Serial.print(cd[1] == 0 ? "  " : down[1] ? "# " : "* ");
-    // Serial.print(cd[2] == 0 ? "  " : down[2] ? "# " : "* ");
-    // Serial.print(cd[3] == 0 ? "  " : down[3] ? "# " : "* ");
+    // Serial.print(cooldown[0] == 0 ? "  " : down[0] ? "# " : "* ");
+    // Serial.print(cooldown[1] == 0 ? "  " : down[1] ? "# " : "* ");
+    // Serial.print(cooldown[2] == 0 ? "  " : down[2] ? "# " : "* ");
+    // Serial.print(cooldown[3] == 0 ? "  " : down[3] ? "# " : "* ");
     // Serial.print("|\t");
     Serial.print(threshold, 1);
     Serial.println();
