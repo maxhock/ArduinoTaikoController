@@ -4,6 +4,7 @@
 //#define DEBUG_OUTPUT_LIVE
 //#define DEBUG_TIME
 //#define DEBUG_DATA
+#define DEBUG_MATLAB
 
 //#define ENABLE_KEYBOARD
 #define ENABLE_NS_JOYSTICK
@@ -67,8 +68,8 @@ const int hat_mapping[16] = {
 #endif
 #endif
 
-const long min_threshold = sq(250);
-const long outer_threshold = sq(500);
+const long min_threshold = (250);
+//const long outer_threshold = 100000;
 const long cd_length = 10000;
 const float k_threshold = 1.5;
 const float k_decay = 0.95;
@@ -113,7 +114,7 @@ void sampleSingle(int i)
   int prev = raw[i];
   raw[i] = analogReadNow();
   //Squared result to get sharper peaks
-  level[i] = sq(abs(raw[i] - prev) * sens[i]);
+  level[i] = (abs(raw[i] - prev) * sens[i]);
   analogSwitchPin(pin[key_next[i]]);
 }
 
@@ -226,9 +227,9 @@ void loop()
   float new_level = level[si];
   level[si] = (level[si] + prev_level * 2) / 3;
 
-  long vector_x = level[Top_Right] + level[Bottom_Right] - level[Top_Left] - level[Bottom_Left];
-  long vector_y = level[Top_Right] + level[Top_Left] - level[Bottom_Right] - level[Bottom_Left];
-  long vector_amp = sqrt(sq(vector_x) + sq(vector_y));
+  float vector_x = level[Top_Right] + level[Bottom_Right] - level[Top_Left] - level[Bottom_Left];
+  float vector_y = level[Top_Right] + level[Top_Left] - level[Bottom_Right] - level[Bottom_Left];
+  float vector_amp = sqrt(sq(vector_x) + sq(vector_y));
 
   threshold *= k_decay;
 
@@ -262,7 +263,7 @@ void loop()
   //     i_max = i;
   //   }
   // }
-  if (vector_amp >= threshold && vector_amp <= outer_threshold)
+  if (vector_amp >= threshold)
   {
     if (vector_y <= 0)
     {
@@ -445,6 +446,10 @@ void loop()
     Serial.print("\t");
     Serial.print(level[3], 1);
     Serial.print("\t| ");
+    Serial.print(vector_x, 1);
+    Serial.print("\t");
+    Serial.print(vector_y, 1);
+    Serial.print("\t");
     // Serial.print(cooldown[0] == 0 ? "  " : down[0] ? "# " : "* ");
     // Serial.print(cooldown[1] == 0 ? "  " : down[1] ? "# " : "* ");
     // Serial.print(cooldown[2] == 0 ? "  " : down[2] ? "# " : "* ");
@@ -457,6 +462,16 @@ void loop()
       Serial.println();
       printing = false;
     }
+  }
+#endif
+
+#ifdef DEBUG_MATLAB
+  if (threshold > 10)
+  {
+    Serial.print(vector_x, 1);
+    Serial.print("\t");
+    Serial.print(vector_y, 1);
+    Serial.println();
   }
 #endif
 
