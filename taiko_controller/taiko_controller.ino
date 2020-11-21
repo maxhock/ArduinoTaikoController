@@ -4,7 +4,7 @@
 //#define DEBUG_OUTPUT_LIVE
 //#define DEBUG_TIME
 //#define DEBUG_DATA
-#define DEBUG_MATLAB
+//#define DEBUG_MATLAB
 
 //#define ENABLE_KEYBOARD
 #define ENABLE_NS_JOYSTICK
@@ -26,7 +26,7 @@
 #ifdef ENABLE_NS_JOYSTICK
 #include "Joystick.h"
 const int led_pin[4] = {8, 9, 10, 11};
-const int sensor_button[4] = {SWITCH_BTN_ZL, SWITCH_BTN_B, SWITCH_BTN_LCLICK, SWITCH_BTN_ZR};
+const int sensor_button[6] = {SWITCH_BTN_ZL, SWITCH_BTN_B, SWITCH_BTN_LCLICK, SWITCH_BTN_ZR, SWITCH_BTN_B | SWITCH_BTN_LCLICK, SWITCH_BTN_ZL | SWITCH_BTN_ZR};
 #endif
 
 #ifdef HAS_BUTTONS
@@ -69,16 +69,19 @@ const int hat_mapping[16] = {
 #endif
 
 const long min_threshold = (250);
-//const long outer_threshold = 100000;
+const long outer_threshold = 750;
 const long cd_length = 10000;
 const float k_threshold = 1.5;
 const float k_decay = 0.95;
+
+float new_level = 0;
+float prev_level = 0;
 
 const int pin[4] = {A0, A3, A2, A1};
 const int key[4] = {'d', 'f', 'j', 'k'};
 const float sens[4] = {0.8, 1.0, 0.95, 0.8};
 
-const int key_next[4] = {3, 2, 0, 1};
+const int key_next[6] = {3, 2, 5, 4, 1, 0};
 
 const long cd_stageselect = 200000;
 
@@ -87,11 +90,11 @@ bool stageresult = false;
 
 float threshold = 20;
 int raw[4] = {0, 0, 0, 0};
-float level[4] = {0, 0, 0, 0};
-long cooldown[4] = {0, 0, 0, 0};
-bool down[4] = {false, false, false, false};
+float level[6] = {0, 0, 0, 0, 0, 0};
+long cooldown[6] = {0, 0, 0, 0, 0, 0};
+bool down[6] = {false, false, false, false, false, false};
 #ifdef ENABLE_NS_JOYSTICK
-uint8_t down_count[4] = {0, 0, 0, 0};
+uint8_t down_count[6] = {0, 0, 0, 0, 0, 0};
 #endif
 
 typedef unsigned long time_t;
@@ -222,10 +225,13 @@ void loop()
   sdt += delta_time;
   t0 = t1;
 
-  float prev_level = level[si];
-  sampleSingle(si);
-  float new_level = level[si];
-  level[si] = (level[si] + prev_level * 2) / 3;
+  if (si < 4)
+  {
+    prev_level = level[si];
+    sampleSingle(si);
+    new_level = level[si];
+    level[si] = (level[si] + prev_level * 2) / 3;
+  }
 
   float vector_x = level[Top_Right] + level[Bottom_Right] - level[Top_Left] - level[Bottom_Left];
   float vector_y = level[Top_Right] + level[Top_Left] - level[Bottom_Right] - level[Bottom_Left];
@@ -233,7 +239,7 @@ void loop()
 
   threshold *= k_decay;
 
-  for (int i = 0; i != 4; ++i)
+  for (int i = 0; i < 6; ++i)
   {
     if (cooldown[i] > 0)
     {
@@ -292,19 +298,19 @@ void loop()
       }
     }
   }
-  // else if (vector_amp >= outer_radius)
-  // {
-  //   if (vector_y <= 0)
-  //   {
-  //     level_max = vector_amp;
-  //     i_max = Bottom_Right;
-  //   }
-  //   else
-  //   {
-  //     level_max = vector_amp;
-  //     i_max = Top_Right;
-  //   }
-  // }
+  else if (vector_amp >= outer_threshold)
+  {
+    if (vector_y <= 0)
+    {
+      level_max = vector_amp;
+      i_max = Bottom;
+    }
+    else
+    {
+      level_max = vector_amp;
+      i_max = Top;
+    }
+  }
 
   if (i_max == si && level_max >= min_threshold)
   {
@@ -403,9 +409,9 @@ void loop()
 #endif
 
 #ifdef ENABLE_NS_JOYSTICK
-  if (ct > 32000 || (ct > 8000 && (down_count[0] || down_count[1] || down_count[2] || down_count[3])))
+  if (ct > 32000 || (ct > 8000 && (down_count[0] || down_count[1] || down_count[2] || down_count[3] || down_count[4] || down_count[5])))
   {
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 6; ++i)
     { // Sensors
       bool state = (down_count[i] & 1);
       Joystick.Button |= (state ? sensor_button[i] : SWITCH_BTN_NONE);
@@ -445,16 +451,20 @@ void loop()
     Serial.print(level[2], 1);
     Serial.print("\t");
     Serial.print(level[3], 1);
+    Serial.print("\t");
+    Serial.print(level[4], 1);
+    Serial.print("\t");
+    Serial.print(level[5], 1);
     Serial.print("\t| ");
-    Serial.print(vector_x, 1);
-    Serial.print("\t");
-    Serial.print(vector_y, 1);
-    Serial.print("\t");
-    // Serial.print(cooldown[0] == 0 ? "  " : down[0] ? "# " : "* ");
-    // Serial.print(cooldown[1] == 0 ? "  " : down[1] ? "# " : "* ");
-    // Serial.print(cooldown[2] == 0 ? "  " : down[2] ? "# " : "* ");
-    // Serial.print(cooldown[3] == 0 ? "  " : down[3] ? "# " : "* ");
-    // Serial.print("|\t");
+
+    Serial.print(cooldown[0] == 0 ? "  " : down[0] ? "# " : "* ");
+    Serial.print(cooldown[1] == 0 ? "  " : down[1] ? "# " : "* ");
+    Serial.print(cooldown[2] == 0 ? "  " : down[2] ? "# " : "* ");
+    Serial.print(cooldown[3] == 0 ? "  " : down[3] ? "# " : "* ");
+    Serial.print(cooldown[4] == 0 ? "  " : down[4] ? "# " : "* ");
+    Serial.print(cooldown[5] == 0 ? "  " : down[5] ? "# " : "* ");
+
+    Serial.print("|\t");
     Serial.print(threshold, 1);
     Serial.println();
     if (threshold <= 5)
@@ -474,8 +484,10 @@ void loop()
     Serial.println();
   }
 #endif
-
-  level[si] = new_level;
+  if (si < 4)
+  {
+    level[si] = new_level;
+  }
   si = key_next[si];
 
   long ddt = 300 - (micros() - t0);
